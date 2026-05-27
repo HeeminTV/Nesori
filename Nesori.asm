@@ -372,9 +372,9 @@ Nesori_cmd_setvol:
 Nesori_cmd_jump:
 		LDA (Nesori_temp_ptr),Y
 		INY
-		STA Nesori_chPtrL,X
+		STA Nesori_temp_ptr+0
 		LDA (Nesori_temp_ptr),Y
-		STA Nesori_chPtrH,X
+		STA Nesori_temp_ptr+1
 
 		LDY #0
 		JMP Nesori_readloop
