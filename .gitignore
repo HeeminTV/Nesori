@@ -1,0 +1,5 @@
+*.exe
+*.bat
+MOSSS_old.asm
+test*
+track.asm
