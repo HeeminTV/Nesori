@@ -385,25 +385,26 @@ Nesori_cmd_call:
 		
 		LDA (Nesori_temp_ptr),Y
 		INY
-		STA Nesori_chPtrL,X
+		STA Nesori_temp_ptr2+0
 		LDA (Nesori_temp_ptr),Y
 		INY ; so saving to stack correctly points next command
-		STA Nesori_chPtrH,X
+		STA Nesori_temp_ptr2+1
+		
+		CLC
 
 		LDA Nesori_chCallStack1PtrH,X
 		BNE @secondstack
 		
 		TYA
-		CLC
 		ADC Nesori_temp_ptr+0
 		STA Nesori_chCallStack1PtrL,X
 		LDA Nesori_temp_ptr+1
 		ADC #0
 		STA Nesori_chCallStack1PtrH,X
 		
-		LDA Nesori_chPtrL,X
+		LDA Nesori_temp_ptr2+0
 		STA Nesori_temp_ptr+0
-		LDA Nesori_chPtrH,X
+		LDA Nesori_temp_ptr2+1
 		STA Nesori_temp_ptr+1
 
 		LDY #0
@@ -411,16 +412,15 @@ Nesori_cmd_call:
 		
 @secondstack:
 		TYA
-		CLC
 		ADC Nesori_temp_ptr+0
 		STA Nesori_chCallStack2PtrL,X
 		LDA Nesori_temp_ptr+1
 		ADC #0
 		STA Nesori_chCallStack2PtrH,X
 		
-		LDA Nesori_chPtrL,X
+		LDA Nesori_temp_ptr2+0
 		STA Nesori_temp_ptr+0
-		LDA Nesori_chPtrH,X
+		LDA Nesori_temp_ptr2+1
 		STA Nesori_temp_ptr+1
 
 		LDY #0
@@ -463,8 +463,8 @@ Nesori_cmd_return:
 		
 ; =========================================================================================
 
-Nesori_periodTableLsb: .DL $6AD, $64D, $5F3, $59D, $54D, $500, $4B8, $474, $434, $3F8, $3BF, $389
-Nesori_periodTableMsb: .DH $6AD, $64D, $5F3, $59D, $54D, $500, $4B8, $474, $434, $3F8, $3BF, $389
+Nesori_periodTableLsb: .DL $6AD<<2, $64D<<2, $5F3<<2, $59D<<2, $54D<<2, $500<<2, $4B8<<2, $474<<2, $434<<2, $3F8<<2, $3BF<<2, $389<<2
+Nesori_periodTableMsb: .DH $6AD<<2, $64D<<2, $5F3<<2, $59D<<2, $54D<<2, $500<<2, $4B8<<2, $474<<2, $434<<2, $3F8<<2, $3BF<<2, $389<<2
 
 Nesori_volTbl:     
 		.BYTE   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
@@ -537,10 +537,11 @@ Nesori_updatePulse: ; only one pulse
 		TAY
 		LDA (Nesori_temp_ptr),Y
 @nopitchenvloop:
-		BPL @pitchenvelopeispositive
+		CMP #$80
+		BCC @pitchenvelopeispositive
 		DEC Nesori_temp_ptr2+0 ; $FF
-@pitchenvelopeispositive:
 		CLC
+@pitchenvelopeispositive:
 		ADC Nesori_chPitch,X
 		TAY
 		LDA Nesori_temp_ptr2+0
@@ -574,7 +575,6 @@ Nesori_updatePulse: ; only one pulse
 		STA $4002,Y
 		LDA Nesori_temp_ptr+1
 		ADC Nesori_temp_ptr2+1
-		AND #$03
 		ORA #$08
 		CMP Nesori_oldHighPeriodReg,X
 		BEQ @nochange
