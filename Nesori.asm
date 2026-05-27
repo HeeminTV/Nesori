@@ -10,9 +10,9 @@ Nesori_BSS = $200
 ;     $80     = set volume duty envelope ptr (2 bytes ptr followed)
 ;     $81     = set pitch envelope ptr (2 bytes ptr followed)
 ;
-;     $AD     = jump to ptr (2 bytes ptr followed) and terminate reading
-;     $AE     = call ptr (2 bytes ptr followed) and terminate reading
-;     $AF     = return from this sequence if this was called, otherwise stop this channel entirely. terminate reading
+;     $AD     = jump to ptr (2 bytes ptr followed)
+;     $AE     = call ptr (2 bytes ptr followed)
+;     $AF     = return from this sequence if this was called, otherwise stop this channel entirely.
 
 ;     $B0-$BF = set volume
 ;     $C0-$FF = set delay
@@ -80,8 +80,8 @@ ende
 
 ; =========================================================================================
 
-Nesori_dummy_volduty_env: .BYTE 1, $FF, $30, 2
-Nesori_dummy_pitNesori_ch_env: .BYTE $00, $80, 0
+Nesori_dummy_volduty_env: .BYTE 1, $FF, $3F, $00, 2
+Nesori_dummy_pitch_env: .BYTE $00, $80, 0
 
 ; =========================================================================================
 
@@ -108,30 +108,31 @@ Nesori_play_song: ; A = song number
 		STA Nesori_chPtrH,X
 		
 		LDA #0
-		STA Nesori_chReleasing,X
+		STA Nesori_chPitch,X
 		STA Nesori_chArpNote1,X
 		STA Nesori_chArpNote2,X
 		STA Nesori_chCallStack1PtrH,X
 		STA Nesori_chCallStack2PtrH,X
+		STA Nesori_chPitchEnvIndex,X
+		STA Nesori_chReleasing,X
 		
 		LDA #1
 		STA Nesori_chLen,X
 		
 		LDA #2
 		STA Nesori_chVolDutyEnvIndex,X
-		STA Nesori_chPitNesori_chEnvIndex,X
 		
 		LDA #$F0
-		STA Nesori_chVol
+		STA Nesori_chVol,X
 		
 		LDA #<Nesori_dummy_volduty_env
 		STA Nesori_chVolDutyEnvPtrL,X
 		LDA #>Nesori_dummy_volduty_env
 		STA Nesori_chVolDutyEnvPtrH,X
-		LDA #<Nesori_dummy_pitNesori_ch_env
-		STA Nesori_chPitNesori_chEnvPtrL,X
-		LDA #>Nesori_dummy_pitNesori_ch_env
-		STA Nesori_chPitNesori_chEnvPtrH,X
+		LDA #<Nesori_dummy_pitch_env
+		STA Nesori_chPitchEnvPtrL,X
+		LDA #>Nesori_dummy_pitch_env
+		STA Nesori_chPitchEnvPtrH,X
 
 		INX
 		CPX #4
@@ -197,11 +198,11 @@ Nesori_update:
 		LDX #3
 @loop:
 		DEC Nesori_chLen,X
-		BNE @no_seq_update
+		BNE @no_chvar_update
+		JSR Nesori_read_sequence
 		LDA Nesori_chDefaultLen,X
 		STA Nesori_chLen,X
-		JSR Nesori_read_sequence
-@no_seq_update:
+@no_chvar_update:
 		DEX
 		BPL @loop
 
@@ -234,6 +235,7 @@ Nesori_update:
 		JSR Nesori_updatePulse
 		INX
 		JSR Nesori_updatePulse
+		RTS
 		
 ; =========================================================================================
 
@@ -250,6 +252,10 @@ Nesori_readloop:
 		BEQ @releasenote
 		INY
 		STA Nesori_chBaseNote,X
+		LDA #2
+		STA Nesori_chVolDutyEnvIndex
+		LDA #0
+		STA Nesori_chPitchEnvIndex
 @done: ; save ptr and terminate this subroutine
 		TYA
 		CLC
@@ -260,8 +266,6 @@ Nesori_readloop:
 @hinc:
 		INC Nesori_chPtrH,X
 		RTS
-		
-Nesori_readdone = Nesori_readloop+2+2+2+1+3 ; stupid assembler
 		
 @releasenote:
 		INY
@@ -335,6 +339,8 @@ Nesori_readdone = Nesori_readloop+2+2+2+1+3 ; stupid assembler
 		
 ; =========================================================================================
 
+Nesori_readdone = Nesori_readloop+2+2+2+1+3 ; stupid assembler
+
 Nesori_cmd_setvolenv:
 		LDA (Nesori_temp_ptr),Y
 		INY
@@ -369,7 +375,9 @@ Nesori_cmd_jump:
 		STA Nesori_chPtrL,X
 		LDA (Nesori_temp_ptr),Y
 		STA Nesori_chPtrH,X
-		RTS ; terminate reading
+
+		LDY #0
+		JMP Nesori_readloop
 		
 Nesori_cmd_call:
 		LDA Nesori_chCallStack2PtrH,X
@@ -392,7 +400,14 @@ Nesori_cmd_call:
 		LDA Nesori_temp_ptr+1
 		ADC #0
 		STA Nesori_chCallStack1PtrH,X
-		RTS ; terminate reading
+		
+		LDA Nesori_chPtrL,X
+		STA Nesori_temp_ptr+0
+		LDA Nesori_chPtrH,X
+		STA Nesori_temp_ptr+1
+
+		LDY #0
+		JMP Nesori_readloop
 		
 @secondstack:
 		TYA
@@ -402,7 +417,14 @@ Nesori_cmd_call:
 		LDA Nesori_temp_ptr+1
 		ADC #0
 		STA Nesori_chCallStack2PtrH,X
-		RTS ; terminate reading
+		
+		LDA Nesori_chPtrL,X
+		STA Nesori_temp_ptr+0
+		LDA Nesori_chPtrH,X
+		STA Nesori_temp_ptr+1
+
+		LDY #0
+		JMP Nesori_readloop
 
 @stackisfull:
 		.BYTE $02 ; kill CPU, blame composer
@@ -410,26 +432,34 @@ Nesori_cmd_call:
 Nesori_cmd_return:
 		LDA Nesori_chCallStack2PtrH,X
 		BNE @returnfromsecondstack
-		LDA Nesori_chCallStack1PtrL,X
+		LDA Nesori_chCallStack1PtrH,X
 		BNE @returnfromfirststack
 		DEY ; move pointer to point this return address again. so it stucks in an infinite loop thus sequence end :P
 		JMP Nesori_readdone
 		
 @returnfromfirststack:
 		STA Nesori_chPtrH,X
+		STA Nesori_temp_ptr+1
 		LDA Nesori_chCallStack1PtrL,X
 		STA Nesori_chPtrL,X
+		STA Nesori_temp_ptr+0
 		LDA #0
 		STA Nesori_chCallStack1PtrH,X
-		RTS ; terminate reading
+
+		TAY
+		JMP Nesori_readloop
 		
 @returnfromsecondstack:
 		STA Nesori_chPtrH,X
+		STA Nesori_temp_ptr+1
 		LDA Nesori_chCallStack2PtrL,X
 		STA Nesori_chPtrL,X
+		STA Nesori_temp_ptr+0
 		LDA #0
 		STA Nesori_chCallStack2PtrH,X
-		RTS ; terminate reading
+
+		TAY
+		JMP Nesori_readloop
 		
 ; =========================================================================================
 
@@ -468,14 +498,17 @@ Nesori_updatePulse: ; only one pulse
 		AND #$20 ; bit 5 check
 		BNE @noenvloop
 		DEY ; push pointer to right previous byte
-		LDA (Nesori_temp_ptr),Y ; and read the envelope byte again
 		DEC Nesori_chVolDutyEnvIndex,X
 @noenvloop:
-		AND #$0F
-		LDY Nesori_chVol,X
 		LDA (Nesori_temp_ptr),Y
 		AND #$F0
-		ORA Nesori_volTbl,Y
+		STA Nesori_temp_ptr2+0
+		LDA (Nesori_temp_ptr),Y
+		AND #$0F
+		ORA Nesori_chVol,X
+		TAY
+		LDA Nesori_volTbl,Y
+		ORA Nesori_temp_ptr2+0
 
 		LDY @chregoffset,X ; $4000/$4004
 		STA $4000,Y
@@ -488,9 +521,9 @@ Nesori_updatePulse: ; only one pulse
 		DEC Nesori_temp_ptr2+1 ; $FF
 @pitchoffsetispositive:
 
-		LDA Nesori_chVolDutyEnvPtrL,X ; do pitch envelope
+		LDA Nesori_chPitchEnvPtrL,X ; do pitch envelope
 		STA Nesori_temp_ptr+0
-		LDA Nesori_chVolDutyEnvPtrH,X
+		LDA Nesori_chPitchEnvPtrH,X
 		STA Nesori_temp_ptr+1
 		LDY Nesori_chPitchEnvIndex,X
 		INC Nesori_chPitchEnvIndex,X
@@ -541,8 +574,13 @@ Nesori_updatePulse: ; only one pulse
 		STA $4002,Y
 		LDA Nesori_temp_ptr+1
 		ADC Nesori_temp_ptr2+1
+		AND #$03
 		ORA #$08
+		CMP Nesori_oldHighPeriodReg,X
+		BEQ @nochange
+		STA Nesori_oldHighPeriodReg,X
 		STA $4003,Y
+@nochange:
 		RTS
 		
 @chregoffset: .BYTE 0, 4
